@@ -226,6 +226,11 @@ static class Program
             using var repo = new ExcelRepository(config.WorkbookPath, config.BackupFolder, config.Sheets, config.Columns, logger);
             repo.CreateSampleWorkbook(runDate);
             logger.Info($"/makesamples created a sample workbook at '{config.WorkbookPath}'.");
+
+            using var wordBuilder = new WordInvoiceBuilder(logger);
+            wordBuilder.CreateSampleTemplate(config.TemplatePath);
+            logger.Info($"/makesamples created a sample invoice template at '{config.TemplatePath}'.");
+
             return (int)ExitCode.Ok;
         }
         catch (COMException ex)

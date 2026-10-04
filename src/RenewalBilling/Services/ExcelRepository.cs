@@ -1,7 +1,5 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Threading;
 using RenewalBilling.Models;
 
 namespace RenewalBilling.Services;
@@ -93,6 +91,7 @@ public sealed class ExcelRepository : IClientRepository
     private int _invoicesNextRow;
 
     private dynamic? _app;
+    private int? _appProcessId;
     private dynamic? _workbook;
     private dynamic? _clientsSheet;
     private dynamic? _itemsSheet;
@@ -125,7 +124,7 @@ public sealed class ExcelRepository : IClientRepository
     {
         EnsureNotLocked();
 
-        _app = CreateExcelApplication();
+        (_app, _appProcessId) = ComRelease.StartOfficeApplication("Excel.Application", "EXCEL");
         _app.Visible = false;
         _app.DisplayAlerts = false;
         _app.ScreenUpdating = false;
@@ -187,7 +186,7 @@ public sealed class ExcelRepository : IClientRepository
             Directory.CreateDirectory(folder);
         }
 
-        dynamic app = CreateExcelApplication();
+        var (app, appProcessId) = ComRelease.StartOfficeApplication("Excel.Application", "EXCEL");
         app.Visible = false;
         app.DisplayAlerts = false;
         dynamic? workbook = null;
@@ -232,7 +231,7 @@ public sealed class ExcelRepository : IClientRepository
             Marshal.FinalReleaseComObject(workbooks);
             ComRelease.CollectTwice();
 
-            QuitExcelAndEnsureProcessExits(app);
+            ComRelease.QuitAndEnsureProcessExits(app, appProcessId);
         }
     }
 
@@ -258,109 +257,15 @@ public sealed class ExcelRepository : IClientRepository
 
         if (_app is not null)
         {
-            QuitExcelAndEnsureProcessExits(_app);
+            ComRelease.QuitAndEnsureProcessExits(_app, _appProcessId);
         }
 
         _app = null;
+        _appProcessId = null;
         _workbook = null;
         _clientsSheet = null;
         _itemsSheet = null;
         _invoicesSheet = null;
-    }
-
-    private static dynamic CreateExcelApplication()
-    {
-        var type = Type.GetTypeFromProgID("Excel.Application")
-            ?? throw new COMException("Excel.Application is not registered on this machine.");
-
-        return Activator.CreateInstance(type)
-            ?? throw new COMException("Could not start a new Excel.Application instance.");
-    }
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-
-    /// <summary>
-    /// Quits Excel and releases the Application COM object, then confirms the underlying
-    /// EXCEL.EXE process actually exits, force-killing it if it has not within a few seconds.
-    /// Late-bound Office automation easily leaves one stray COM reference somewhere in a long
-    /// property chain (a <c>.Worksheets</c> or <c>.Workbooks</c> collection fetched and never
-    /// explicitly released), and a single outstanding reference is enough for Excel to stay
-    /// resident indefinitely after <c>Quit()</c>. This is the safety net that guarantees no
-    /// orphan process survives a run regardless of any one leak slipping through.
-    /// </summary>
-    private static void QuitExcelAndEnsureProcessExits(dynamic app)
-    {
-        uint? processId = null;
-        try
-        {
-            GetWindowThreadProcessId((IntPtr)(int)app.Hwnd, out var pid);
-            processId = pid;
-        }
-        catch (COMException)
-        {
-            // No window handle available; fall through without the safety net.
-        }
-
-        try
-        {
-            app.Quit();
-        }
-        catch (COMException)
-        {
-            // Best effort; we still release and, if needed, kill the process below.
-        }
-
-        Marshal.FinalReleaseComObject(app);
-        ComRelease.CollectTwice();
-
-        if (processId is null or 0)
-        {
-            return;
-        }
-
-        for (var attempt = 0; attempt < 10; attempt++)
-        {
-            if (!TryGetProcess((int)processId.Value, out var process))
-            {
-                return;
-            }
-
-            using (process)
-            {
-                if (process.HasExited)
-                {
-                    return;
-                }
-            }
-
-            Thread.Sleep(300);
-        }
-
-        if (TryGetProcess((int)processId.Value, out var finalProcess))
-        {
-            using (finalProcess)
-            {
-                if (!finalProcess.HasExited)
-                {
-                    finalProcess.Kill();
-                }
-            }
-        }
-    }
-
-    private static bool TryGetProcess(int processId, out Process process)
-    {
-        try
-        {
-            process = Process.GetProcessById(processId);
-            return true;
-        }
-        catch (ArgumentException)
-        {
-            process = null!;
-            return false;
-        }
     }
 
     private void EnsureNotLocked()
