@@ -1,0 +1,46 @@
+{
+  "workbookPath": "TestData\\Clients.xlsx",
+  "templatePath": "TestData\\InvoiceTemplate.dotx",
+  "invoiceFolder": "TestData\\Invoices",
+  "backupFolder": "TestData\\Backups",
+  "logFolder": "TestData\\Logs",
+  "leadDays": 21,
+  "renewalMonths": 12,
+  "invoiceNumberFormat": "INV-{yyyy}-{seq:0000}",
+  "payByDays": null,
+  "vatRatePercent": 0,
+  "rpi": {
+    "url": "https://www.ons.gov.uk/economy/inflationandpriceindices/timeseries/czbh/mm23/data",
+    "timeoutSeconds": 15,
+    "fallbackPercent": 3.5,
+    "cacheFile": "rpi-cache.json"
+  },
+  "uplift": {
+    "roundTo": 1.00,
+    "minimumPercent": 0,
+    "maximumPercent": null
+  },
+  "sheets": {
+    "clients": "Clients",
+    "items": "Items",
+    "invoices": "Invoices"
+  },
+  "columns": {
+    "clients": {
+      "id": "ClientId", "name": "ClientName", "contact": "ContactName",
+      "address1": "Address1", "address2": "Address2", "town": "Town",
+      "postcode": "Postcode", "email": "Email",
+      "dueDate": "DueDate", "lastPaidDate": "LastPaidDate", "active": "Active"
+    },
+    "items": {
+      "clientId": "ClientId", "description": "Description", "quantity": "Quantity",
+      "unitCost": "UnitCost", "previousUnitCost": "PreviousUnitCost", "lastUpliftPercent": "LastUpliftPercent"
+    },
+    "invoices": {
+      "invoiceNumber": "InvoiceNumber", "clientId": "ClientId", "invoiceDate": "InvoiceDate",
+      "dueDate": "DueDate", "periodStart": "PeriodStart", "periodEnd": "PeriodEnd",
+      "net": "Net", "vat": "Vat", "total": "Total", "rpiPercent": "RpiPercent",
+      "docxPath": "DocxPath", "pdfPath": "PdfPath"
+    }
+  }
+}
