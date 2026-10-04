@@ -255,6 +255,14 @@ static class Program
             return (int)ExitCode.OfficeNotAvailable;
         }
 
+        var rpiService = new RpiService(config.Rpi, logger);
+        var rpi = rpiService.GetLatestRpiAsync().GetAwaiter().GetResult();
+        logger.Info($"RPI result: {rpi.Percent}% ({rpi.PeriodLabel}), source {rpi.Source}.");
+        if (rpi.Source != RpiSource.Online)
+        {
+            logger.Warn($"RPI did not come from a live ONS fetch (source: {rpi.Source}). Proposed prices use a {rpi.Source.ToString().ToLowerInvariant()} value until ONS is reachable again.");
+        }
+
         var clientsWithItems = snapshot.Items
             .Select(item => item.ClientId)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);

@@ -290,6 +290,7 @@ public static class AppConfigLoader
         config.InvoiceFolder = ResolvePath(config.InvoiceFolder, baseDirectory);
         config.BackupFolder = ResolvePath(config.BackupFolder, baseDirectory);
         config.LogFolder = ResolvePath(config.LogFolder, baseDirectory);
+        config.Rpi.CacheFile = ResolvePath(config.Rpi.CacheFile, baseDirectory);
 
         Validate(config, path);
 
