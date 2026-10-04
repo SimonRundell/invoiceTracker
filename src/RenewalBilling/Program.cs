@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.Runtime.InteropServices;
+using RenewalBilling.Models;
 using RenewalBilling.Services;
 
 namespace RenewalBilling;
@@ -190,23 +193,24 @@ static class Program
         try
         {
             var runDate = options.DateOverride ?? DateTime.Today;
-            logger.Info($"Run start. Mode={options.Mode} RunDate={runDate:dd MMM yyyy} Args=[{string.Join(' ', args)}]");
+            logger.Info($"Run start. Mode={options.Mode} RunDate={FormatDate(runDate)} Args=[{string.Join(' ', args)}]");
 
+            int exitCode;
             switch (options.Mode)
             {
                 case RunMode.MakeSamples:
-                    logger.Info("/makesamples requested. Sample workbook and template generation will be added in a later milestone.");
+                    exitCode = RunMakeSamples(config, logger, runDate);
                     break;
 
                 case RunMode.DryRun:
                 case RunMode.Scheduled:
                 default:
-                    logger.Info("Milestone 1 scaffold only: eligibility checks, RPI lookup, and invoice generation are not implemented yet.");
+                    exitCode = RunFindCandidates(config, logger, runDate, options.Mode);
                     break;
             }
 
             logger.Info("Run end.");
-            return (int)ExitCode.Ok;
+            return exitCode;
         }
         catch (Exception ex)
         {
@@ -214,6 +218,82 @@ static class Program
             return (int)ExitCode.UnexpectedFailure;
         }
     }
+
+    private static int RunMakeSamples(AppConfig config, IAppLogger logger, DateTime runDate)
+    {
+        try
+        {
+            using var repo = new ExcelRepository(config.WorkbookPath, config.BackupFolder, config.Sheets, config.Columns, logger);
+            repo.CreateSampleWorkbook(runDate);
+            logger.Info($"/makesamples created a sample workbook at '{config.WorkbookPath}'.");
+            return (int)ExitCode.Ok;
+        }
+        catch (COMException ex)
+        {
+            logger.Error($"Office automation is not available: {ex.Message}");
+            return (int)ExitCode.OfficeNotAvailable;
+        }
+    }
+
+    private static int RunFindCandidates(AppConfig config, IAppLogger logger, DateTime runDate, RunMode mode)
+    {
+        WorkbookSnapshot snapshot;
+        using var repo = new ExcelRepository(config.WorkbookPath, config.BackupFolder, config.Sheets, config.Columns, logger);
+
+        try
+        {
+            snapshot = repo.Open();
+        }
+        catch (WorkbookException ex)
+        {
+            logger.Error(ex.Message);
+            return (int)ExitCode.ConfigOrWorkbookError;
+        }
+        catch (COMException ex)
+        {
+            logger.Error($"Office automation is not available: {ex.Message}");
+            return (int)ExitCode.OfficeNotAvailable;
+        }
+
+        var clientsWithItems = snapshot.Items
+            .Select(item => item.ClientId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var candidateCount = 0;
+        foreach (var client in snapshot.Clients)
+        {
+            var hasItems = clientsWithItems.Contains(client.ClientId);
+            var result = EligibilityService.Evaluate(client, hasItems, runDate, config.LeadDays, snapshot.Invoices);
+
+            if (result.IsEligible)
+            {
+                candidateCount++;
+                logger.Info($"Candidate found: {client.ClientName} ({client.ClientId}), {result.Status}, due {FormatDate(client.DueDate!.Value)}.");
+            }
+            else if (result.SkipReason is not null)
+            {
+                logger.Warn($"Skipped {client.ClientName} ({client.ClientId}): {result.SkipReason}");
+            }
+        }
+
+        if (candidateCount == 0)
+        {
+            logger.Info("No candidates found.");
+        }
+        else
+        {
+            logger.Info($"{candidateCount} candidate(s) found. RPI lookup, price proposals and the review form are not implemented yet (Milestones 4 to 6).");
+        }
+
+        if (mode == RunMode.DryRun)
+        {
+            logger.Info("Dry run: nothing was written.");
+        }
+
+        return (int)ExitCode.Ok;
+    }
+
+    private static string FormatDate(DateTime value) => value.ToString("dd MMM yyyy", CultureInfo.GetCultureInfo("en-GB"));
 
     private static string ResolveConfigPath(string? configPathArg, string baseDirectory)
     {
