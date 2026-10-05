@@ -438,6 +438,13 @@ public sealed class ExcelRepository : IClientRepository
             Marshal.FinalReleaseComObject(range);
         }
 
+        // New rows start out in the sheet's default (General) format, so without this the OLE
+        // date serial numbers just written display as meaningless integers instead of dates.
+        foreach (var dateCol in new[] { invoices.InvoiceDate, invoices.DueDate, invoices.PeriodStart, invoices.PeriodEnd })
+        {
+            FormatRangeAsDate(_invoicesSheet, _invoiceHeaderMap[dateCol], startRow, endRow);
+        }
+
         _invoicesNextRow = endRow + 1;
     }
 
@@ -647,13 +654,23 @@ public sealed class ExcelRepository : IClientRepository
 
     private static void FormatColumnAsDate(dynamic sheet, int column, int dataRowCount)
     {
-        if (dataRowCount == 0 || column <= 0)
+        if (dataRowCount == 0)
+        {
+            return;
+        }
+
+        FormatRangeAsDate(sheet, column, 2, dataRowCount + 1);
+    }
+
+    private static void FormatRangeAsDate(dynamic sheet, int column, int startRow, int endRow)
+    {
+        if (column <= 0)
         {
             return;
         }
 
         var letter = ColumnLetter(column);
-        dynamic range = sheet.Range[$"{letter}2:{letter}{dataRowCount + 1}"];
+        dynamic range = sheet.Range[$"{letter}{startRow}:{letter}{endRow}"];
         try
         {
             range.NumberFormat = "dd mmm yyyy";

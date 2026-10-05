@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using RenewalBilling.Forms;
 using RenewalBilling.Models;
 using RenewalBilling.Services;
 
@@ -203,9 +204,12 @@ static class Program
                     break;
 
                 case RunMode.DryRun:
+                    exitCode = RunDryRun(config, logger, runDate);
+                    break;
+
                 case RunMode.Scheduled:
                 default:
-                    exitCode = RunFindCandidates(config, logger, runDate, options.Mode);
+                    exitCode = RunScheduled(config, logger, runDate);
                     break;
             }
 
@@ -240,7 +244,7 @@ static class Program
         }
     }
 
-    private static int RunFindCandidates(AppConfig config, IAppLogger logger, DateTime runDate, RunMode mode)
+    private static int RunDryRun(AppConfig config, IAppLogger logger, DateTime runDate)
     {
         WorkbookSnapshot snapshot;
         using var repo = new ExcelRepository(config.WorkbookPath, config.BackupFolder, config.Sheets, config.Columns, logger);
@@ -295,14 +299,45 @@ static class Program
         }
         else
         {
-            logger.Info($"{candidateCount} candidate(s) found. RPI lookup, price proposals and the review form are not implemented yet (Milestones 4 to 6).");
+            logger.Info($"{candidateCount} candidate(s) found.");
         }
 
-        if (mode == RunMode.DryRun)
+        logger.Info("Dry run: nothing was written.");
+        return (int)ExitCode.Ok;
+    }
+
+    private static int RunScheduled(AppConfig config, IAppLogger logger, DateTime runDate)
+    {
+        var worker = new ReviewRunWorker(config, logger, runDate);
+        worker.Start();
+        worker.WaitForDiscovery();
+
+        var outcome = worker.Outcome;
+
+        if (outcome.ExitCode != ExitCode.Ok)
         {
-            logger.Info("Dry run: nothing was written.");
+            logger.Error(outcome.ErrorMessage ?? "Unknown error during discovery.");
+            worker.RequestClose();
+            worker.WaitForExit();
+            return (int)outcome.ExitCode;
         }
 
+        if (outcome.Candidates.Count == 0)
+        {
+            logger.Info("No candidates found.");
+            worker.RequestClose();
+            worker.WaitForExit();
+            return (int)ExitCode.Ok;
+        }
+
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+
+        using var form = new ReviewForm(runDate, outcome.Rpi!, outcome.Candidates, worker, config);
+        Application.Run(form);
+
+        worker.WaitForExit();
         return (int)ExitCode.Ok;
     }
 
